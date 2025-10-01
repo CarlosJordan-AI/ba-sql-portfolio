@@ -1,4 +1,5 @@
 import os
+import csv
 import random
 from datetime import datetime, timedelta
 import pandas as pd
@@ -82,13 +83,8 @@ prods = pd.read_csv(os.path.join(SEED_DIR, "products.csv"))
 items_df = items_df.merge(prods[["sku", "price", "cost"]], on="sku", how="left")
 items_df.rename(columns={"price": "unit_price", "cost": "unit_cost"}, inplace=True)
 
-# ---- Hard-clean any accidental duplicates from prior runs/merges
-dup_cols = [c for c in items_df.columns if c.startswith("unit_price.") or c.startswith("unit_cost.")]
-if dup_cols:
-    items_df = items_df.drop(columns=dup_cols)
-
-# Rebuild clean dataframe with EXACT schema order
-items_df = pd.DataFrame({
+# Build a clean view with EXACT schema order (guard against any dup columns)
+items_clean = pd.DataFrame({
     "order_id":  items_df["order_id"].astype(int),
     "sku":       items_df["sku"],
     "qty":       items_df["qty"].astype(int),
@@ -96,20 +92,24 @@ items_df = pd.DataFrame({
     "unit_cost": items_df["unit_cost"].astype(float),
 })
 
-print("order_items columns (final):", list(items_df.columns))
+print("order_items columns (final):", list(items_clean.columns))
 
 # -----------------------
 # Write all seed CSVs
 # -----------------------
 orders_df.to_csv(os.path.join(SEED_DIR, "orders.csv"), index=False)
 
-# ensure we overwrite and only write the 5 schema columns
+# ✅ FORCE a clean write of order_items.csv (no duplicates possible)
 order_items_path = os.path.join(SEED_DIR, "order_items.csv")
 if os.path.exists(order_items_path):
     os.remove(order_items_path)
-items_df.to_csv(order_items_path,
-                index=False,
-                columns=["order_id", "sku", "qty", "unit_price", "unit_cost"])
+
+with open(order_items_path, "w", newline="", encoding="utf-8") as f:
+    w = csv.writer(f)
+    w.writerow(["order_id", "sku", "qty", "unit_price", "unit_cost"])
+    # write rows explicitly in the same order
+    for row in items_clean.itertuples(index=False, name=None):
+        w.writerow(row)
 
 # -----------------------
 # Shipments
@@ -138,7 +138,7 @@ for _ in range(int(len(orders_df) * 0.08)):
         continue
     chosen.add(o.order_id)
 
-    oi = items_df[items_df.order_id == o.order_id].sample(
+    oi = items_clean[items_clean.order_id == o.order_id].sample(
         1, random_state=random.randint(0, 100)
     ).iloc[0]
     qty = max(1, int(round(oi.qty * random.uniform(0.2, 0.8))))
