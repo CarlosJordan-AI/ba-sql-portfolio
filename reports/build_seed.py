@@ -1,6 +1,8 @@
-import os, random
+import os
+import random
 from datetime import datetime, timedelta
 import pandas as pd
+
 random.seed(42)
 
 BASE = os.path.dirname(__file__)
@@ -19,28 +21,36 @@ reasons  = ["Damaged","Wrong item","Buyer remorse"]
 today = datetime(2025, 9, 1)
 start = today - timedelta(days=365)
 
+# -----------------------
 # Customers
+# -----------------------
 cust = []
 for cid in range(1, 801):
     signup = start + timedelta(days=random.randint(0, 330))
-    cust.append(dict(customer_id=cid,
-                     region=random.choice(regions),
-                     segment=random.choices(segments, weights=[6,3,1])[0],
-                     signup_date=dstr(signup)))
-pd.DataFrame(cust).to_csv(os.path.join(SEED_DIR,"customers.csv"), index=False)
+    cust.append(dict(
+        customer_id=cid,
+        region=random.choice(regions),
+        segment=random.choices(segments, weights=[6,3,1])[0],
+        signup_date=dstr(signup)
+    ))
+pd.DataFrame(cust).to_csv(os.path.join(SEED_DIR, "customers.csv"), index=False)
 
+# -----------------------
 # Products
+# -----------------------
 prod = []
 for i in range(1, 151):
     cat = random.choices(cats, weights=[4,3,2,1])[0]
     sku = f"SKU{i:04d}"
-    base = {"Doors":400,"Frames":250,"Hardware":60,"Accessories":25}[cat]
-    price = round(random.uniform(base*0.9, base*1.2),2)
-    cost  = round(price * random.uniform(0.55,0.8),2)
+    base = {"Doors":400, "Frames":250, "Hardware":60, "Accessories":25}[cat]
+    price = round(random.uniform(base*0.9, base*1.2), 2)
+    cost  = round(price * random.uniform(0.55, 0.8), 2)
     prod.append(dict(sku=sku, category=cat, price=price, cost=cost))
-pd.DataFrame(prod).to_csv(os.path.join(SEED_DIR,"products.csv"), index=False)
+pd.DataFrame(prod).to_csv(os.path.join(SEED_DIR, "products.csv"), index=False)
 
+# -----------------------
 # Orders & Items
+# -----------------------
 orders, items = [], []
 oid = 1
 for _ in range(2200):
@@ -48,47 +58,78 @@ for _ in range(2200):
     days_back = max(0, int(abs(random.gauss(110, 85))))
     otime = max(start, today - timedelta(days=days_back))
     is_internal = 1 if random.random() < 0.03 else 0
-    orders.append(dict(order_id=oid, customer_id=cid,
-                       order_ts=tstr(otime), is_internal=is_internal))
-    for _ in range(random.randint(1,4)):
-        sku_row = random.randint(1,150)
-        qty = random.randint(1,4)
+
+    orders.append(dict(
+        order_id=oid,
+        customer_id=cid,
+        order_ts=tstr(otime),
+        is_internal=is_internal
+    ))
+
+    # 1–4 lines per order
+    for _ in range(random.randint(1, 4)):
+        sku_row = random.randint(1, 150)
+        qty = random.randint(1, 4)
+        # Note: we do NOT add unit_price/unit_cost placeholders here
         items.append(dict(order_id=oid, sku=f"SKU{sku_row:04d}", qty=qty))
+
     oid += 1
+
 orders_df = pd.DataFrame(orders)
 items_df  = pd.DataFrame(items)
 
-prods = pd.read_csv(os.path.join(SEED_DIR,"products.csv"))
-items_df = items_df.merge(prods[["sku","price","cost"]], on="sku", how="left")
-items_df.rename(columns={"price":"unit_price","cost":"unit_cost"}, inplace=True)
+# Bring in price/cost from products and rename to schema names
+prods = pd.read_csv(os.path.join(SEED_DIR, "products.csv"))
+items_df = items_df.merge(prods[["sku", "price", "cost"]], on="sku", how="left")
+items_df.rename(columns={"price": "unit_price", "cost": "unit_cost"}, inplace=True)
 
-orders_df.to_csv(os.path.join(SEED_DIR,"orders.csv"), index=False)
-items_df.to_csv(os.path.join(SEED_DIR,"order_items.csv"), index=False)
+# ✅ Keep ONLY the expected columns in the expected order
+items_df = items_df[["order_id", "sku", "qty", "unit_price", "unit_cost"]]
+# (Optional: sanity print)
+print("order_items columns:", list(items_df.columns))
 
+orders_df.to_csv(os.path.join(SEED_DIR, "orders.csv"), index=False)
+items_df.to_csv(os.path.join(SEED_DIR, "order_items.csv"), index=False)
+
+# -----------------------
 # Shipments
+# -----------------------
 ship = []
 for _, o in orders_df.iterrows():
-    ship_offset = random.randint(0,3)
+    ship_offset = random.randint(0, 3)
     ship_ts = datetime.strptime(o.order_ts, "%Y-%m-%d %H:%M:%S") + timedelta(days=ship_offset)
     in_transit = random.random() < 0.05
-    delivered = None if in_transit else ship_ts + timedelta(days=random.randint(1,7))
-    ship.append(dict(order_id=int(o.order_id),
-                     carrier=random.choice(carriers),
-                     ship_ts=tstr(ship_ts),
-                     delivered_ts=None if in_transit else tstr(delivered)))
-pd.DataFrame(ship).to_csv(os.path.join(SEED_DIR,"shipments.csv"), index=False)
+    delivered = None if in_transit else ship_ts + timedelta(days=random.randint(1, 7))
+    ship.append(dict(
+        order_id=int(o.order_id),
+        carrier=random.choice(carriers),
+        ship_ts=tstr(ship_ts),
+        delivered_ts=None if in_transit else tstr(delivered)
+    ))
+pd.DataFrame(ship).to_csv(os.path.join(SEED_DIR, "shipments.csv"), index=False)
 
-# Returns (~8%)
+# -----------------------
+# Returns (~8% of orders)
+# -----------------------
 rets, chosen = [], set()
-for _ in range(int(len(orders_df)*0.08)):
-    o = orders_df.sample(1, random_state=random.randint(0,100)).iloc[0]
-    if o.order_id in chosen: continue
+for _ in range(int(len(orders_df) * 0.08)):
+    o = orders_df.sample(1, random_state=random.randint(0, 100)).iloc[0]
+    if o.order_id in chosen:
+        continue
     chosen.add(o.order_id)
-    oi = items_df[items_df.order_id==o.order_id].sample(1, random_state=random.randint(0,100)).iloc[0]
+
+    oi = items_df[items_df.order_id == o.order_id].sample(
+        1, random_state=random.randint(0, 100)
+    ).iloc[0]
     qty = max(1, int(round(oi.qty * random.uniform(0.2, 0.8))))
-    rts = datetime.strptime(o.order_ts, "%Y-%m-%d %H:%M:%S") + timedelta(days=random.randint(2,30))
-    rets.append(dict(order_id=int(o.order_id), sku=oi.sku, qty=qty,
-                     reason=random.choice(reasons), return_ts=dstr(rts)))
-pd.DataFrame(rets).to_csv(os.path.join(SEED_DIR,"returns.csv"), index=False)
+    rts = datetime.strptime(o.order_ts, "%Y-%m-%d %H:%M:%S") + timedelta(days=random.randint(2, 30))
+    rets.append(dict(
+        order_id=int(o.order_id),
+        sku=oi.sku,
+        qty=qty,
+        reason=random.choice(reasons),
+        return_ts=dstr(rts)
+    ))
+pd.DataFrame(rets).to_csv(os.path.join(SEED_DIR, "returns.csv"), index=False)
 
 print("✅ Seed CSVs written to reports/seed")
