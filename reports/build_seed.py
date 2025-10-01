@@ -70,7 +70,7 @@ for _ in range(2200):
     for _ in range(random.randint(1, 4)):
         sku_row = random.randint(1, 150)
         qty = random.randint(1, 4)
-        # Note: we do NOT add unit_price/unit_cost placeholders here
+        # No placeholders for price/cost here
         items.append(dict(order_id=oid, sku=f"SKU{sku_row:04d}", qty=qty))
 
     oid += 1
@@ -78,15 +78,27 @@ for _ in range(2200):
 orders_df = pd.DataFrame(orders)
 items_df  = pd.DataFrame(items)
 
-# Bring in price/cost from products and rename to schema names
+# Bring in price/cost from products
 prods = pd.read_csv(os.path.join(SEED_DIR, "products.csv"))
 items_df = items_df.merge(prods[["sku", "price", "cost"]], on="sku", how="left")
 items_df.rename(columns={"price": "unit_price", "cost": "unit_cost"}, inplace=True)
 
-# ✅ Keep ONLY the expected columns in the expected order
-items_df = items_df[["order_id", "sku", "qty", "unit_price", "unit_cost"]]
-# (Optional: sanity print)
-print("order_items columns:", list(items_df.columns))
+# ✅ DEFENSIVE: if duplicates slipped in, take the LAST column matching the name
+# (This handles cases where a prior run or a merge created duplicate headers.)
+unit_price_series = items_df.filter(regex=r'^unit_price(\.\d+)?$').iloc[:, -1]
+unit_cost_series  = items_df.filter(regex=r'^unit_cost(\.\d+)?$').iloc[:, -1]
+
+# Rebuild the exact schema order & single header set
+items_df = pd.DataFrame({
+    "order_id":  items_df["order_id"].astype(int),
+    "sku":       items_df["sku"],
+    "qty":       items_df["qty"].astype(int),
+    "unit_price":unit_price_series.astype(float),
+    "unit_cost": unit_cost_series.astype(float),
+})
+
+# (Optional sanity check)
+print("order_items columns (final):", list(items_df.columns))
 
 orders_df.to_csv(os.path.join(SEED_DIR, "orders.csv"), index=False)
 items_df.to_csv(os.path.join(SEED_DIR, "order_items.csv"), index=False)
