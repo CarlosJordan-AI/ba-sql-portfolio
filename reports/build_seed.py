@@ -70,7 +70,6 @@ for _ in range(2200):
     for _ in range(random.randint(1, 4)):
         sku_row = random.randint(1, 150)
         qty = random.randint(1, 4)
-        # No placeholders for price/cost here
         items.append(dict(order_id=oid, sku=f"SKU{sku_row:04d}", qty=qty))
 
     oid += 1
@@ -78,30 +77,39 @@ for _ in range(2200):
 orders_df = pd.DataFrame(orders)
 items_df  = pd.DataFrame(items)
 
-# Bring in price/cost from products
+# Merge in price/cost and normalize column names
 prods = pd.read_csv(os.path.join(SEED_DIR, "products.csv"))
 items_df = items_df.merge(prods[["sku", "price", "cost"]], on="sku", how="left")
 items_df.rename(columns={"price": "unit_price", "cost": "unit_cost"}, inplace=True)
 
-# ✅ DEFENSIVE: if duplicates slipped in, take the LAST column matching the name
-# (This handles cases where a prior run or a merge created duplicate headers.)
-unit_price_series = items_df.filter(regex=r'^unit_price(\.\d+)?$').iloc[:, -1]
-unit_cost_series  = items_df.filter(regex=r'^unit_cost(\.\d+)?$').iloc[:, -1]
+# ---- Hard-clean any accidental duplicates from prior runs/merges
+dup_cols = [c for c in items_df.columns if c.startswith("unit_price.") or c.startswith("unit_cost.")]
+if dup_cols:
+    items_df = items_df.drop(columns=dup_cols)
 
-# Rebuild the exact schema order & single header set
+# Rebuild clean dataframe with EXACT schema order
 items_df = pd.DataFrame({
     "order_id":  items_df["order_id"].astype(int),
     "sku":       items_df["sku"],
     "qty":       items_df["qty"].astype(int),
-    "unit_price":unit_price_series.astype(float),
-    "unit_cost": unit_cost_series.astype(float),
+    "unit_price":items_df["unit_price"].astype(float),
+    "unit_cost": items_df["unit_cost"].astype(float),
 })
 
-# (Optional sanity check)
 print("order_items columns (final):", list(items_df.columns))
 
+# -----------------------
+# Write all seed CSVs
+# -----------------------
 orders_df.to_csv(os.path.join(SEED_DIR, "orders.csv"), index=False)
-items_df.to_csv(os.path.join(SEED_DIR, "order_items.csv"), index=False)
+
+# ensure we overwrite and only write the 5 schema columns
+order_items_path = os.path.join(SEED_DIR, "order_items.csv")
+if os.path.exists(order_items_path):
+    os.remove(order_items_path)
+items_df.to_csv(order_items_path,
+                index=False,
+                columns=["order_id", "sku", "qty", "unit_price", "unit_cost"])
 
 # -----------------------
 # Shipments
