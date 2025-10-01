@@ -53,8 +53,7 @@ for _ in range(2200):
     for _ in range(random.randint(1,4)):
         sku_row = random.randint(1,150)
         qty = random.randint(1,4)
-        items.append(dict(order_id=oid, sku=f"SKU{sku_row:04d}", qty=qty,
-                          unit_price=None, unit_cost=None))
+        items.append(dict(order_id=oid, sku=f"SKU{sku_row:04d}", qty=qty))
     oid += 1
 orders_df = pd.DataFrame(orders)
 items_df  = pd.DataFrame(items)
